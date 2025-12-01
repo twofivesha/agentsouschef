@@ -7,6 +7,13 @@ import re
 import streamlit as st
 from openai import OpenAI
 
+from recipes import RECIPE_LIBRARY, get_recipe_keys_and_labels
+from view_helpers import (
+    format_working_ingredients_markdown,
+    format_steps_with_progress_markdown,
+)
+from llm_agent import call_agent_sous_chef
+
 # --- Command help text (central source of truth) ---
 
 COMMANDS_LONG_MARKDOWN = """
@@ -47,86 +54,6 @@ if not OPENAI_API_KEY:
     st.stop()
 
 client = OpenAI(api_key=OPENAI_API_KEY)
-
-# --- Recipe library (with ingredients) ---
-
-RECIPE_LIBRARY: Dict[str, Dict[str, Any]] = {
-    "garlic_pasta": {
-        "name": "Simple Garlic Pasta",
-        "description": "Fast, simple, garlicky pasta for weeknights.",
-        "ingredients": [
-            "8 ounces dry spaghetti or other pasta",
-            "Salt for the pasta water",
-            "3 tablespoons olive oil",
-            "3–4 cloves garlic, minced",
-            "Freshly ground black pepper",
-            "1/2 cup reserved pasta cooking water (as needed)",
-            "Grated Parmesan or Pecorino cheese for serving",
-        ],
-        "steps": [
-            "Bring a large pot of salted water to a boil.",
-            "Add pasta and cook until just shy of al dente (about 1 minute less than package instructions).",
-            "While pasta cooks, gently warm olive oil in a pan over low heat.",
-            "Add minced garlic to the oil and cook gently until fragrant, not browned.",
-            "Reserve a cup of pasta water, then drain the pasta.",
-            "Toss pasta with the garlic oil, a splash of pasta water, salt, and pepper.",
-            "Adjust with more pasta water if needed, then finish with cheese and serve.",
-        ],
-    },
-    "scrambled_eggs": {
-        "name": "Soft Scrambled Eggs",
-        "description": "Gentle, creamy scrambled eggs on the stove.",
-        "ingredients": [
-            "3 large eggs",
-            "Salt",
-            "1–2 teaspoons butter",
-            "Freshly ground black pepper",
-            "Optional: 1–2 tablespoons milk or cream",
-        ],
-        "steps": [
-            "Crack eggs into a bowl, add a pinch of salt, and whisk until fully combined.",
-            "Heat a nonstick pan over low to medium-low heat and add a small knob of butter.",
-            "Pour the eggs into the pan and let them sit for a few seconds until they just start to set at the edges.",
-            "Use a spatula to gently push the eggs from the edges toward the center, forming soft curds.",
-            "Continue slowly pushing and folding the eggs until they are mostly set but still slightly glossy and soft.",
-            "Remove the pan from the heat; the eggs will finish cooking off the heat. Taste and adjust seasoning, then serve.",
-        ],
-    },
-}
-
-
-def get_recipe_keys_and_labels() -> List[tuple[str, str]]:
-    items: List[tuple[str, str]] = []
-    for key, data in RECIPE_LIBRARY.items():
-        label = data["name"]
-        items.append((key, label))
-    return items
-
-
-SYSTEM_INSTRUCTIONS = """
-You are Agent Sous Chef — a friendly, concise AI cooking assistant.
-You help users cook step by step with clarity and calm encouragement.
-
-You must always respond as a strict JSON object with two keys:
-- "reply": a short natural-language message to the user
-- "advance_step": a boolean (true or false) indicating whether the app should move to the next step
-
-Format example:
-{
-  "reply": "Some helpful message to the user.",
-  "advance_step": false
-}
-
-Rules:
-- Speak clearly and briefly.
-- Focus on the current step unless it is clearly completed.
-- If the user says things like "done", "finished", or clearly describes completing the current step, set "advance_step" to true.
-- If the user asks "what is next" or similar, and the current step seems complete, set "advance_step" to true.
-- If the user is asking for ingredient substitutions, suggest 1–3 simple alternatives and set "advance_step" to false.
-- If you are at the final step, and it is complete, use "advance_step": false and wrap up the recipe politely.
-- Do not add any extra keys to the JSON.
-- Do not include backticks or explanations outside the JSON.
-"""
 
 # --- Session state setup ---
 
@@ -232,18 +159,13 @@ with col_left:
         # Get any strike marks for this recipe (ingredients user wants visually struck out)
         strikes_for_recipe = st.session_state.ingredient_strikes.get(st.session_state.recipe_key, set())
 
-        for ing in recipe_ingredients:
-            sub_name = recipe_subs.get(ing)
-            if sub_name:
-                display = f"{sub_name} (instead of {ing})"
-            else:
-                display = ing
-
-            # If this ingredient has been marked for strikethrough, render it with ~~...~~
-            if ing in strikes_for_recipe:
-                st.write(f"- ~~{display}~~")
-            else:
-                st.write(f"- {display}")
+        lines = format_working_ingredients_markdown(
+            recipe_ingredients,
+            recipe_subs,
+            strikes_for_recipe,
+        )
+        for line in lines:
+            st.write(line)
 
 with col_right:
     # Restart button: hard reset all state, keep the current recipe, and rerun
@@ -279,107 +201,6 @@ for msg in st.session_state.messages:
         st.markdown(msg["content"])
 
 
-# --- Core LLM call helper ---
-
-def call_agent_sous_chef(user_input: str) -> Dict[str, Any]:
-    current_step_index = st.session_state.current_step
-    steps = recipe_steps
-
-    # Clamp index
-    if current_step_index < 0:
-        current_step_index = 0
-    if current_step_index >= len(steps):
-        current_step_index = len(steps) - 1
-
-    current_step_text = steps[current_step_index]
-    completed_steps = steps[:current_step_index]
-    remaining_steps = steps[current_step_index + 1 :]
-
-    steps_text = "\n".join(f"{i+1}. {s}" for i, s in enumerate(steps))
-
-    # Compose ingredient lines with substitutions
-    if recipe_ingredients:
-        ingredient_lines = []
-        for ing in recipe_ingredients:
-            sub_name = recipe_subs.get(ing)
-            if sub_name:
-                ingredient_lines.append(f"- {ing} (substitute: {sub_name})")
-            else:
-                ingredient_lines.append(f"- {ing}")
-        ingredients_block = chr(10).join(ingredient_lines)
-    else:
-        ingredients_block = "None"
-
-    user_context = f"""
-User message: {user_input}
-
-Active recipe: {recipe_name}
-Recipe description: {recipe_description}
-
-Ingredients:
-{ingredients_block}
-
-All steps:
-{steps_text}
-
-Current step index (1-based): {current_step_index + 1}
-Current step text: {current_step_text}
-
-Completed steps:
-{chr(10).join(f"- {s}" for s in completed_steps) if completed_steps else "None"}
-
-Remaining steps:
-{chr(10).join(f"- {s}" for s in remaining_steps) if remaining_steps else "None"}
-"""
-
-    completion = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": SYSTEM_INSTRUCTIONS},
-            {"role": "user", "content": user_context},
-        ],
-        max_tokens=300,
-    )
-
-    raw = completion.choices[0].message.content.strip()
-
-    # Try to parse JSON response
-    try:
-        data = json.loads(raw)
-        if not isinstance(data, dict):
-            raise ValueError("Response JSON is not an object")
-        reply = str(data.get("reply", "")).strip()
-        advance_step = bool(data.get("advance_step", False))
-        if not reply:
-            reply = "I had trouble generating a reply. Please tell me again what you did."
-        return {"reply": reply, "advance_step": advance_step, "raw": raw}
-    except Exception:
-        # Fallback: treat entire response as text, simple naive advancing
-        lower = user_input.lower()
-        clean = "".join(ch for ch in lower if ch.isalnum() or ch.isspace())
-
-        advance_triggers = [
-            "done",
-            "finished",
-            "next",
-            "next step",
-            "whats next",
-            "what is next",
-            "ok",
-            "okay",
-            "k",
-            "kk",
-        ]
-
-        naive_advance = any(
-            trigger == clean or trigger in clean for trigger in advance_triggers
-        )
-
-        return {
-            "reply": raw,
-            "advance_step": naive_advance,
-            "raw": raw,
-        }
 
 
 # --- Chat input ---
@@ -451,17 +272,13 @@ if user_input:
                 "Got it. I will use those substitutions. Here is your updated ingredient list:",
                 "",
             ]
-            for ing in recipe_ingredients:
-                sub_name = recipe_subs.get(ing)
-                if sub_name:
-                    display = f"{sub_name} (instead of {ing})"
-                else:
-                    display = ing
-
-                if ing in strikes_for_recipe:
-                    lines.append(f"- ~~{display}~~")
-                else:
-                    lines.append(f"- {display}")
+            lines.extend(
+                format_working_ingredients_markdown(
+                    recipe_ingredients,
+                    recipe_subs,
+                    strikes_for_recipe,
+                )
+            )
 
             reply_text = "\n".join(lines)
         else:
@@ -512,11 +329,12 @@ if user_input:
             lines.append("")
 
             current_idx = st.session_state.current_step
-            for idx, step in enumerate(recipe_steps):
-                if idx < current_idx:
-                    lines.append(f"{idx + 1}. ~~{step}~~")
-                else:
-                    lines.append(f"{idx + 1}. {step}")
+            lines.extend(
+                format_steps_with_progress_markdown(
+                    recipe_steps,
+                    current_idx,
+                )
+            )
 
             reply_text = "\n".join(lines)
 
@@ -687,17 +505,13 @@ if user_input:
                     "Got it. I updated your ingredient list. Here is the current version:",
                     "",
                 ]
-                for ing in recipe_ingredients:
-                    sub_name = recipe_subs.get(ing)
-                    if sub_name:
-                        display = f"{sub_name} (instead of {ing})"
-                    else:
-                        display = ing
-
-                    if ing in strikes_for_recipe:
-                        lines.append(f"- ~~{display}~~")
-                    else:
-                        lines.append(f"- {display}")
+                lines.extend(
+                    format_working_ingredients_markdown(
+                        recipe_ingredients,
+                        recipe_subs,
+                        strikes_for_recipe,
+                    )
+                )
 
                 reply_text = "\n".join(lines)
             else:
@@ -726,13 +540,12 @@ if user_input:
             if recipe_steps:
                 reply_lines = ["Here are all the steps for this recipe:", ""]
                 current_idx = st.session_state.current_step
-                for idx, step in enumerate(recipe_steps):
-                    # Steps with index < current_step are considered completed
-                    if idx < current_idx:
-                        # Strikethrough to indicate completion
-                        reply_lines.append(f"{idx + 1}. ~~{step}~~")
-                    else:
-                        reply_lines.append(f"{idx + 1}. {step}")
+                reply_lines.extend(
+                    format_steps_with_progress_markdown(
+                        recipe_steps,
+                        current_idx,
+                    )
+                )
                 reply_text = "\n".join(reply_lines)
             else:
                 reply_text = "This recipe does not have any steps defined yet."
@@ -756,17 +569,13 @@ if user_input:
                 # Get any strike marks for this recipe so chat output matches the UI
                 strikes_for_recipe = st.session_state.ingredient_strikes.get(st.session_state.recipe_key, set())
 
-                for ing in recipe_ingredients:
-                    sub_name = recipe_subs.get(ing)
-                    if sub_name:
-                        display = f"{sub_name} (instead of {ing})"
-                    else:
-                        display = ing
-
-                    if ing in strikes_for_recipe:
-                        reply_lines.append(f"- ~~{display}~~")
-                    else:
-                        reply_lines.append(f"- {display}")
+                reply_lines.extend(
+                    format_working_ingredients_markdown(
+                        recipe_ingredients,
+                        recipe_subs,
+                        strikes_for_recipe,
+                    )
+                )
                 reply_text = "\n".join(reply_lines)
             else:
                 reply_text = "This recipe does not have a stored ingredient list yet."
@@ -783,23 +592,19 @@ if user_input:
 
         # Ingredients section (working list with subs and strikes)
         if recipe_ingredients:
-            lines.append("Ingredients (with substitutions applied):")
+            lines.append("### Ingredients (with substitutions applied)")
             lines.append("")
             strikes_for_recipe = st.session_state.ingredient_strikes.get(
                 st.session_state.recipe_key, set()
             )
 
-            for ing in recipe_ingredients:
-                sub_name = recipe_subs.get(ing)
-                if sub_name:
-                    display = f"{sub_name} (instead of {ing})"
-                else:
-                    display = ing
-
-                if ing in strikes_for_recipe:
-                    lines.append(f"- ~~{display}~~")
-                else:
-                    lines.append(f"- {display}")
+            lines.extend(
+                format_working_ingredients_markdown(
+                    recipe_ingredients,
+                    recipe_subs,
+                    strikes_for_recipe,
+                )
+            )
 
             lines.append("")
 
@@ -807,13 +612,15 @@ if user_input:
         if 0 <= st.session_state.current_step < len(recipe_steps):
             step_num = st.session_state.current_step + 1
             step_text = recipe_steps[st.session_state.current_step]
-            lines.append("Current step:")
+            lines.append("### Current step")
             lines.append("")
             lines.append(f"{step_num}. {step_text}")
         else:
             lines.append("You’ve completed all the steps in this recipe.")
 
-        # Append condensed command list at the end
+        # Append a subtle separator and condensed command list at the end
+        lines.append("")
+        lines.append("---")
         lines.append("")
         lines.append(COMMANDS_CONDENSED)
 
@@ -824,7 +631,16 @@ if user_input:
     # If still not handled, fall back to the LLM
     if not handled:
         try:
-            result = call_agent_sous_chef(user_input)
+            result = call_agent_sous_chef(
+                client=client,
+                user_input=user_input,
+                recipe_name=recipe_name,
+                recipe_description=recipe_description,
+                recipe_steps=recipe_steps,
+                recipe_ingredients=recipe_ingredients,
+                recipe_subs=recipe_subs,
+                current_step_index=st.session_state.current_step,
+            )
             reply_text = result["reply"]
             advance_step = result["advance_step"]
         except Exception as e:
