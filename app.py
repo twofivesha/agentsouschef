@@ -246,10 +246,26 @@ Remaining steps:
     except Exception:
         # Fallback: treat entire response as text, simple naive advancing
         lower = user_input.lower()
+        # Normalize by stripping punctuation so "ok!", "ok.", etc. still match.
+        clean = "".join(ch for ch in lower if ch.isalnum() or ch.isspace())
+
+        advance_triggers = [
+            "done",
+            "finished",
+            "next",
+            "next step",
+            "whats next",
+            "what is next",
+            "ok",
+            "okay",
+            "k",
+            "kk",
+        ]
+
         naive_advance = any(
-            phrase in lower
-            for phrase in ["done", "finished", "what's next", "what is next", "next step", "ok"]
+            trigger == clean or trigger in clean for trigger in advance_triggers
         )
+
         return {
             "reply": raw,
             "advance_step": naive_advance,
