@@ -80,6 +80,10 @@ if "pending_recipe_pick" not in st.session_state:
     # When True, numeric input like "2" is treated as "pick recipe #2"
     st.session_state.pending_recipe_pick = False
 
+if "pick_candidates" not in st.session_state:
+    # Holds the current list of candidate recipe keys during pick/search mode
+    st.session_state.pick_candidates = None
+
 
 def reset_conversation_for_recipe(new_recipe_key: str) -> None:
     """Fully reset ALL state when switching or restarting a recipe."""
@@ -341,68 +345,88 @@ if user_input:
             advance_step = False
             handled = True
 
-    # Handle "pick" to allow choosing a recipe via chat
+    # Handle "pick" to enter recipe search mode (interviewer style)
     if not handled and lower == "pick":
-        items = get_recipe_keys_and_labels()
-        lines = ["Available recipes:", ""]
-        for idx, (key, label) in enumerate(items, start=1):
-            lines.append(f"{idx}. {label}")
-        lines.append("")
-        lines.append("Reply with a number (e.g., 1 or 2) to pick a recipe.")
-
+        # Enter search-based pick mode instead of listing all recipes.
         st.session_state.pending_recipe_pick = True
+        st.session_state.pick_candidates = None
+
+        lines = [
+            "Recipe search mode activated.",
+            "What are you in the mood for?",
+            "Try a keyword like 'eggs', 'pasta', 'soup', or 'chicken'.",
+            "I'll show matching recipes and you can pick by number.",
+        ]
         reply_text = "\n".join(lines)
         advance_step = False
         handled = True
 
+    
     # While in "pick" mode, treat non-numeric input as a filter over recipe titles.
     # Example:
     #   pick
     #   eggs
-    # will show only recipes whose titles contain "eggs", keeping their original numbers.
+    # will show only recipes whose titles contain all query tokens.
     if not handled and st.session_state.get("pending_recipe_pick", False):
-        # If the input is not a plain number, interpret it as a filter term.
+        # If the input is not a plain number, interpret it as a search query.
         if not re.match(r"^\s*\d+\s*$", user_input):
             query = lower.strip()
-            items = get_recipe_keys_and_labels()
-            lines: list[str] = []
-
-            # Filter recipes whose names contain the query (case-insensitive),
-            # but KEEP their original index numbers so selection remains consistent.
-            matching_indices: list[int] = []
-            for idx, (key, label) in enumerate(items, start=1):
-                if query in label.lower():
-                    matching_indices.append(idx)
-
-            if matching_indices:
-                lines.append(f"Recipes matching '{query}':")
-                lines.append("")
-                for idx, (key, label) in enumerate(items, start=1):
-                    if idx in matching_indices:
-                        lines.append(f"{idx}. {label}")
-                lines.append("")
-                lines.append(
-                    "Reply with a number to pick one of these recipes, "
-                    "or type another keyword to filter again."
+            if not query:
+                reply_text = (
+                    "Please type a keyword for the kind of recipe you want.\n"
+                    "For example: 'eggs', 'pasta', 'soup', or 'chicken'."
                 )
+                advance_step = False
+                handled = True
             else:
-                # No matches; fall back to showing all recipes again.
-                lines.append(
-                    f"I couldn't find any recipes matching '{query}'. "
-                    "Here are all available recipes:"
-                )
-                lines.append("")
-                for idx, (key, label) in enumerate(items, start=1):
-                    lines.append(f"{idx}. {label}")
-                lines.append("")
-                lines.append(
-                    "Reply with a number (e.g., 1 or 2) to pick a recipe, "
-                    "or type another keyword to filter."
-                )
+                items = get_recipe_keys_and_labels()
+                lines: list[str] = []
 
-            reply_text = "\n".join(lines)
-            advance_step = False
-            handled = True
+                # Support multi-word queries: all tokens must appear in the label
+                tokens = [t for t in query.split() if t]
+                candidates: list[tuple[str, str]] = []
+                for key, label in items:
+                    label_lower = label.lower()
+                    if all(t in label_lower for t in tokens):
+                        candidates.append((key, label))
+
+                if not candidates:
+                    reply_text = (
+                        f"I couldn't find any recipes matching '{query}'.\n"
+                        "Try a different keyword like 'eggs', 'pasta', 'soup', or 'chicken'."
+                    )
+                    advance_step = False
+                    handled = True
+                else:
+                    # Limit how many we show at once to keep the chat readable
+                    MAX_SHOW = 25
+                    shown = candidates[:MAX_SHOW]
+                    extra_count = max(0, len(candidates) - MAX_SHOW)
+
+                    # Store just the keys of the current candidate list in session state
+                    st.session_state.pick_candidates = [key for key, _ in shown]
+
+                    lines.append(f"Recipes matching '{query}':")
+                    lines.append("")
+                    for idx, (key, label) in enumerate(shown, start=1):
+                        lines.append(f"{idx}. {label}")
+
+                    if extra_count > 0:
+                        lines.append("")
+                        lines.append(
+                            f"...and {extra_count} more results. "
+                            "Try adding another word to narrow it down."
+                        )
+
+                    lines.append("")
+                    lines.append(
+                        "Reply with a number to pick one of these recipes, "
+                        "or type another keyword to search again."
+                    )
+
+                    reply_text = "\n".join(lines)
+                    advance_step = False
+                    handled = True
 
     # Handle numeric-only input:
     # - If pending_recipe_pick is True: treat as "pick recipe #N"
@@ -414,15 +438,30 @@ if user_input:
             n = int(num_match.group(1))
 
             if st.session_state.get("pending_recipe_pick", False):
-                items = get_recipe_keys_and_labels()
-                if 1 <= n <= len(items):
-                    new_key, new_label = items[n - 1]
+                candidates = st.session_state.get("pick_candidates")
+
+                # If we don't have a current candidate list, ask them to search first
+                if not candidates:
+                    reply_text = (
+                        "Please type a keyword for the kind of recipe you want first.\n"
+                        "For example: 'eggs', 'pasta', 'soup', or 'chicken'."
+                    )
+                    advance_step = False
+                    handled = True
+                elif 1 <= n <= len(candidates):
+                    new_key = candidates[n - 1]
                     reset_conversation_for_recipe(new_key)
+                    # Clear pick mode flags after a successful selection
+                    st.session_state.pending_recipe_pick = False
+                    st.session_state.pick_candidates = None
                     # Full reset and rerun, just like choosing from the dropdown.
                     st.rerun()
                 else:
-                    reply_text = f"There are only {len(items)} recipes. Please pick a number between 1 and {len(items)}."
-                    # Keep pending_recipe_pick = True so the user can try again.
+                    reply_text = (
+                        f"There are only {len(candidates)} recipes in the current list. "
+                        f"Please pick a number between 1 and {len(candidates)}, "
+                        "or type another keyword to search again."
+                    )
                     advance_step = False
                     handled = True
             else:

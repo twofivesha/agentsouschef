@@ -1,8 +1,20 @@
-from typing import Dict, Any, List
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Dict, Any, List, Tuple
 
 
-RECIPE_LIBRARY: Dict[str, Dict[str, Any]] = {
+# Path to the normalized recipe JSON produced by scripts/prepare_recipes.py
+DATA_DIR = Path(__file__).resolve().parent / "data"
+RECIPES_JSON = DATA_DIR / "recipes_internal.json"
+
+
+# --- Default built-in recipes (fallback for development) ---
+
+_BUILTIN_RECIPES: Dict[str, Dict[str, Any]] = {
     "garlic_pasta": {
+        "key": "garlic_pasta",
         "name": "Simple Garlic Pasta",
         "description": "Fast, simple, garlicky pasta for weeknights.",
         "ingredients": [
@@ -25,6 +37,7 @@ RECIPE_LIBRARY: Dict[str, Dict[str, Any]] = {
         ],
     },
     "scrambled_eggs": {
+        "key": "scrambled_eggs",
         "name": "Soft Scrambled Eggs",
         "description": "Gentle, creamy scrambled eggs on the stove.",
         "ingredients": [
@@ -46,9 +59,40 @@ RECIPE_LIBRARY: Dict[str, Dict[str, Any]] = {
 }
 
 
-def get_recipe_keys_and_labels() -> List[tuple[str, str]]:
-    items: List[tuple[str, str]] = []
+def _load_recipe_library() -> Dict[str, Dict[str, Any]]:
+    """
+    Load recipes from data/recipes_internal.json if present;
+    otherwise fall back to a small built-in library.
+    """
+    if RECIPES_JSON.exists():
+        try:
+            data = json.loads(RECIPES_JSON.read_text(encoding="utf-8"))
+            # Expecting a dict of {key: {name, description, ingredients, steps, ...}}
+            if isinstance(data, dict) and data:
+                return data
+        except Exception:
+            # If anything goes wrong, just fall back to built-ins
+            pass
+
+    # Fallback: built-in examples
+    return _BUILTIN_RECIPES
+
+
+# This is what the rest of the app imports
+RECIPE_LIBRARY: Dict[str, Dict[str, Any]] = _load_recipe_library()
+
+
+def get_recipe_keys_and_labels() -> List[Tuple[str, str]]:
+    """
+    Return a list of (key, label) pairs for recipe selection.
+
+    Label is currently just the recipe name, but could be extended
+    to include a short description in the future.
+    """
+    items: List[Tuple[str, str]] = []
     for key, data in RECIPE_LIBRARY.items():
-        label = data["name"]
+        label = data.get("name", key)
         items.append((key, label))
+    # Sort alphabetically by label for nicer UI
+    items.sort(key=lambda x: x[1].lower())
     return items

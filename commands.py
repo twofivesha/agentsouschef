@@ -78,6 +78,17 @@ def handle_user_command(
     reply_text = ""
     advance_step = False
 
+    # Allow cancelling recipe search (pick) mode
+    if lower in {"cancel", "exit", "stop picking"} and st.session_state.get("pending_recipe_pick", False):
+        st.session_state.pending_recipe_pick = False
+        st.session_state.pick_candidates = None
+        reply_text = "Okay, leaving recipe search mode."
+        return {
+            "handled": True,
+            "reply_text": reply_text,
+            "advance_step": False,
+        }
+
     # --- 1. Full reset / clear commands ---
     start_over_triggers = [
         "start over",
@@ -138,16 +149,20 @@ def handle_user_command(
             "advance_step": False,
         }
 
-    # --- 3. Enter pick mode ---
+    # --- 3. Enter pick mode (interviewer style) ---
     if lower == "pick":
-        items = get_recipe_keys_and_labels()
-        lines = ["Available recipes:", ""]
-        for idx, (key, label) in enumerate(items, start=1):
-            lines.append(f"{idx}. {label}")
-        lines.append("")
-        lines.append("Reply with a number (e.g., 1 or 2) to pick a recipe.")
-
+        # We don't list all recipes (there may be thousands).
+        # Instead, we enter a search-based pick mode and ask for a keyword.
         st.session_state.pending_recipe_pick = True
+        # We'll store the current filtered candidate keys here when the user searches.
+        st.session_state.pick_candidates = None
+
+        lines = [
+            "Recipe search mode activated.",
+            "What are you in the mood for?",
+            "Try a keyword like 'eggs', 'pasta', 'soup', or 'chicken'.",
+            "I'll show matching recipes and you can pick by number.",
+        ]
         reply_text = "\n".join(lines)
         return {
             "handled": True,
@@ -160,38 +175,65 @@ def handle_user_command(
         # If the input is not a pure number, treat it as a filter query
         if not re.match(r"^\s*\d+\s*$", user_input):
             query = lower.strip()
+            if not query:
+                reply_text = (
+                    "Please type a keyword for the kind of recipe you want.\n"
+                    "For example: 'eggs', 'pasta', 'soup', or 'chicken'."
+                )
+                return {
+                    "handled": True,
+                    "reply_text": reply_text,
+                    "advance_step": False,
+                }
+
             items = get_recipe_keys_and_labels()
             lines: list[str] = []
 
-            matching_indices: list[int] = []
-            for idx, (key, label) in enumerate(items, start=1):
-                if query in label.lower():
-                    matching_indices.append(idx)
+            # Support multi-word queries: all tokens must appear in the label
+            tokens = [t for t in query.split() if t]
+            candidates: list[tuple[str, str]] = []
+            for key, label in items:
+                label_lower = label.lower()
+                if all(t in label_lower for t in tokens):
+                    candidates.append((key, label))
 
-            if matching_indices:
-                lines.append(f"Recipes matching '{query}':")
-                lines.append("")
-                for idx, (key, label) in enumerate(items, start=1):
-                    if idx in matching_indices:
-                        lines.append(f"{idx}. {label}")
+            if not candidates:
+                reply_text = (
+                    f"I couldn't find any recipes matching '{query}'.\n"
+                    "Try a different keyword like 'eggs', 'pasta', 'soup', or 'chicken'."
+                )
+                # Keep pending_recipe_pick = True so they can try again
+                return {
+                    "handled": True,
+                    "reply_text": reply_text,
+                    "advance_step": False,
+                }
+
+            # Limit how many we show at once to keep the chat readable
+            MAX_SHOW = 25
+            shown = candidates[:MAX_SHOW]
+            extra_count = max(0, len(candidates) - MAX_SHOW)
+
+            # Store just the keys of the current candidate list in session state
+            st.session_state.pick_candidates = [key for key, _ in shown]
+
+            lines.append(f"Recipes matching '{query}':")
+            lines.append("")
+            for idx, (key, label) in enumerate(shown, start=1):
+                lines.append(f"{idx}. {label}")
+
+            if extra_count > 0:
                 lines.append("")
                 lines.append(
-                    "Reply with a number to pick one of these recipes, "
-                    "or type another keyword to filter again."
+                    f"...and {extra_count} more results. "
+                    "Try adding another word to narrow it down."
                 )
-            else:
-                lines.append(
-                    f"I couldn't find any recipes matching '{query}'. "
-                    "Here are all available recipes:"
-                )
-                lines.append("")
-                for idx, (key, label) in enumerate(items, start=1):
-                    lines.append(f"{idx}. {label}")
-                lines.append("")
-                lines.append(
-                    "Reply with a number (e.g., 1 or 2) to pick a recipe, "
-                    "or type another keyword to filter."
-                )
+
+            lines.append("")
+            lines.append(
+                "Reply with a number to pick one of these recipes, "
+                "or type another keyword to search again."
+            )
 
             reply_text = "\n".join(lines)
             return {
@@ -207,15 +249,32 @@ def handle_user_command(
 
         # If we are in pending pick mode, interpret as recipe choice
         if st.session_state.get("pending_recipe_pick", False):
-            items = get_recipe_keys_and_labels()
-            if 1 <= n <= len(items):
-                new_key, new_label = items[n - 1]
+            candidates = st.session_state.get("pick_candidates")
+
+            # If we don't have a current candidate list, ask them to search first
+            if not candidates:
+                reply_text = (
+                    "Please type a keyword for the kind of recipe you want first.\n"
+                    "For example: 'eggs', 'pasta', 'soup', or 'chicken'."
+                )
+                return {
+                    "handled": True,
+                    "reply_text": reply_text,
+                    "advance_step": False,
+                }
+
+            if 1 <= n <= len(candidates):
+                new_key = candidates[n - 1]
                 reset_conversation_for_recipe(new_key)
+                # Clear pick mode flags after a successful selection
+                st.session_state.pending_recipe_pick = False
+                st.session_state.pick_candidates = None
                 st.rerun()
             else:
                 reply_text = (
-                    f"There are only {len(items)} recipes. "
-                    f"Please pick a number between 1 and {len(items)}."
+                    f"There are only {len(candidates)} recipes in the current list. "
+                    f"Please pick a number between 1 and {len(candidates)}, "
+                    "or type another keyword to search again."
                 )
                 return {
                     "handled": True,
