@@ -1,6 +1,28 @@
 import json
 from typing import List, Dict, Any
+import os
 from openai import OpenAI
+from typing import Optional
+
+
+_client: Optional[OpenAI] = None
+
+
+def get_client() -> OpenAI:
+    """Return a cached OpenAI client, creating it on first use.
+
+    This keeps client creation out of the app layer so callers don't need
+    to manage API keys or client lifetimes.
+    """
+    global _client
+
+    if _client is None:
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise RuntimeError("OPENAI_API_KEY is not set. Please configure it in your environment.")
+        _client = OpenAI(api_key=api_key)
+
+    return _client
 
 
 SYSTEM_INSTRUCTIONS = """
@@ -30,7 +52,6 @@ Rules:
 
 
 def call_agent_sous_chef(
-    client: OpenAI,
     user_input: str,
     recipe_name: str,
     recipe_description: str,
@@ -102,6 +123,7 @@ Remaining steps:
 """
 
     # Call the OpenAI client
+    client = get_client()
     completion = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[

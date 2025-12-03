@@ -13,6 +13,9 @@ from view_helpers import (
 
 # --- Command help text (central source of truth) ---
 
+
+
+
 COMMANDS_LONG_MARKDOWN = """
 **Commands**
 
@@ -297,7 +300,179 @@ def handle_user_command(
                 "advance_step": False,
             }
 
-    # --- 6. Ingredient list command ("i" or similar) ---
+    # --- 6. Simple next-step commands ("k", "ok", etc.) ---
+    # These are explicit, lightweight commands that advance to the next step
+    # and also show the step text.
+    next_step_triggers = {
+        "k",
+        "ok",
+        "okay",
+        "next",
+        "next step",
+        "done",
+        "finished",
+    }
+    if lower in next_step_triggers:
+        # We treat current_step as "number of steps completed".
+        # The next step to *do* is at index current_step (if any).
+        current_idx = st.session_state.current_step
+
+        if current_idx < len(recipe_steps):
+            next_idx = current_idx
+            step_num = next_idx + 1
+            step_text = recipe_steps[next_idx]
+
+            # Mark this step as completed for subsequent renders.
+            st.session_state.current_step = min(current_idx + 1, len(recipe_steps))
+
+            reply_text = f"Next step:\n\n{step_num}. {step_text}"
+        else:
+            # All steps are already completed.
+            reply_text = "You’ve already completed all the steps in this recipe."
+
+        return {
+            "handled": True,
+            "reply_text": reply_text,
+            "advance_step": False,
+        }
+
+    # --- 7. Ingredient strike / unstrike commands ("x oil", "86 butter") ---
+    # These commands visually cross off or restore ingredients in the working list.
+    stripped = lower.strip()
+
+    strike_prefixes = [
+        "strikethrough ",
+        "strike ",
+        "cross off ",
+        "x ",
+        "cross ",
+        "86 ",
+    ]
+    unstrike_prefixes = [
+        "unstrike ",
+        "uncross ",
+        "restore ",
+    ]
+
+    command_type = None  # "strike" or "unstrike"
+    target_name = ""
+
+    for prefix in strike_prefixes:
+        if stripped.startswith(prefix):
+            command_type = "strike"
+            target_name = stripped[len(prefix) :].strip()
+            break
+
+    if command_type is None:
+        for prefix in unstrike_prefixes:
+            if stripped.startswith(prefix):
+                command_type = "unstrike"
+                target_name = stripped[len(prefix) :].strip()
+                break
+
+    if command_type is not None:
+        if not target_name:
+            reply_text = "Tell me which ingredient to change, for example: `x oil` or `86 butter`."
+            return {
+                "handled": True,
+                "reply_text": reply_text,
+                "advance_step": False,
+            }
+
+        recipe_key = st.session_state.get("recipe_key")
+        if not recipe_key:
+            reply_text = "I’m not sure which recipe you’re cooking. Please pick a recipe and try again."
+            return {
+                "handled": True,
+                "reply_text": reply_text,
+                "advance_step": False,
+            }
+
+        # Get current subs and strikes for this recipe
+        all_subs = st.session_state.ingredient_subs if "ingredient_subs" in st.session_state else {}
+        all_strikes = st.session_state.ingredient_strikes if "ingredient_strikes" in st.session_state else {}
+
+        subs_for_recipe = all_subs.get(recipe_key, {})
+        strikes_for_recipe = set(all_strikes.get(recipe_key, set()))
+
+        # Find matching ingredients by searching both the original ingredient text
+        # and any substitution text for this recipe.
+        target_lower = target_name.lower()
+        matching_keys = []
+        for base_ing in recipe_ingredients:
+            display_name = base_ing
+            sub_name = subs_for_recipe.get(base_ing)
+            search_text = base_ing.lower()
+            if sub_name:
+                search_text += " " + str(sub_name).lower()
+
+            if target_lower and target_lower in search_text:
+                matching_keys.append(base_ing)
+
+        if not matching_keys:
+            # Nothing matched; show the user what we *do* see to help them phrase it.
+            lines: list[str] = []
+            lines.append(
+                f"I couldn't find an ingredient matching '{target_name}' in this recipe."
+            )
+            lines.append("Here are the ingredients I see:")
+            lines.append("")
+
+            strikes_for_recipe = st.session_state.ingredient_strikes.get(
+                recipe_key, set()
+            )
+            lines.extend(
+                format_working_ingredients_markdown(
+                    recipe_ingredients,
+                    subs_for_recipe,
+                    strikes_for_recipe,
+                )
+            )
+
+            reply_text = "\n".join(lines)
+            return {
+                "handled": True,
+                "reply_text": reply_text,
+                "advance_step": False,
+            }
+
+        # Apply strike or unstrike to all matching ingredients
+        if command_type == "strike":
+            for key in matching_keys:
+                strikes_for_recipe.add(key)
+        elif command_type == "unstrike":
+            for key in matching_keys:
+                strikes_for_recipe.discard(key)
+
+        # Persist updated strikes in session state
+        if "ingredient_strikes" not in st.session_state:
+            st.session_state.ingredient_strikes = {}
+        st.session_state.ingredient_strikes[recipe_key] = strikes_for_recipe
+
+        # Build a full updated ingredient list for the user
+        lines = []
+        if command_type == "strike":
+            lines.append("Got it. I updated your ingredient list. Here is the current version:")
+        else:
+            lines.append("Got it. I restored those ingredients. Here is the current list:")
+
+        lines.append("")
+        lines.extend(
+            format_working_ingredients_markdown(
+                recipe_ingredients,
+                subs_for_recipe,
+                strikes_for_recipe,
+            )
+        )
+
+        reply_text = "\n".join(lines)
+        return {
+            "handled": True,
+            "reply_text": reply_text,
+            "advance_step": False,
+        }
+
+    # --- 8. Ingredient list command ("i" or similar) ---
     ingredient_triggers = [
         "ingredients",
         "ingredient list",
@@ -334,7 +509,7 @@ def handle_user_command(
             "advance_step": False,
         }
 
-    # --- 7. Steps listing commands ("steps", "s") ---
+    # --- 9. Steps listing commands ("steps", "s") ---
     step_triggers = [
         "show all steps",
         "steps",
@@ -363,7 +538,7 @@ def handle_user_command(
             "advance_step": False,
         }
 
-    # --- 8. "what" status command: show name, ingredients, and current step ---
+    # --- 10. "what" status command: show name, ingredients, and current step ---
     if lower == "what":
         lines: list[str] = []
 
