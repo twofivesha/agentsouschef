@@ -11,17 +11,17 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-# Import from wherever your files are
-# Adjust these imports based on your structure
-from recipes import RECIPE_LIBRARY
-from llm_agent import call_agent_sous_chef
+
 
 # Import the clean core
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent / "core"))
-from commands import CookingState, handle_command
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
+
+from recipes import RECIPE_LIBRARY
+from llm_agent import call_agent_sous_chef
+from core.commands import CookingState, handle_command
 
 app = FastAPI(title="Agent Sous Chef API", version="2.0.0")
 
@@ -106,6 +106,18 @@ def list_recipes():
         }
         for key, recipe in RECIPE_LIBRARY.items()
     ]
+
+@app.get("/recipes/{recipe_key}")
+def get_recipe_detail(recipe_key: str):
+    """Get detailed recipe information"""
+    recipe = get_recipe(recipe_key)
+    return {
+        "key": recipe_key,
+        "name": recipe["name"],
+        "description": recipe.get("description", ""),
+        "ingredients": recipe.get("ingredients", []),
+        "steps": recipe.get("steps", [])
+    }
 
 
 @app.post("/session/start", response_model=StartResponse)

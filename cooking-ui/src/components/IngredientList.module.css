@@ -1,0 +1,51 @@
+.container {
+  padding: var(--spacing-md);
+}
+
+.list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+  border-radius: var(--radius-medium);
+  font-size: var(--font-size-step);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  min-height: var(--button-height-small);
+  touch-action: manipulation;
+  user-select: none;
+}
+
+.item:hover {
+  background: var(--color-grey-light);
+}
+
+.item:active {
+  transform: scale(0.99);
+}
+
+.checkbox {
+  font-size: 24px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.text {
+  flex: 1;
+  line-height: 1.5;
+}
+
+.item.struck {
+  color: var(--color-grey);
+}
+
+.item.struck .text {
+  text-decoration: line-through;
+}

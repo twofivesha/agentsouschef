@@ -1,0 +1,86 @@
+/* Design System Variables */
+
+:root {
+  /* Colors */
+  --color-primary: #4CAF50;
+  --color-primary-hover: #45a049;
+  --color-primary-active: #3d8b40;
+  
+  --color-grey: #888888;
+  --color-grey-light: #e0e0e0;
+  --color-text: #212121;
+  --color-text-light: #666666;
+  --color-background: #ffffff;
+  
+  --color-highlight: #FFF9C4;
+  --color-highlight-border: #F9A825;
+  
+  /* Spacing */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+  
+  /* Button Heights */
+  --button-height-large: 60px;
+  --button-height-medium: 50px;
+  --button-height-small: 44px;
+  
+  /* Typography */
+  --font-size-header: 24px;
+  --font-size-tab: 18px;
+  --font-size-step: 16px;
+  --font-size-button: 18px;
+  --font-size-small: 14px;
+  
+  --font-weight-normal: 400;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  
+  /* Border Radius */
+  --radius-small: 4px;
+  --radius-medium: 8px;
+  --radius-large: 12px;
+  
+  /* Transitions */
+  --transition-fast: 150ms ease;
+  --transition-normal: 250ms ease;
+  
+  /* Shadows */
+  --shadow-small: 0 1px 3px rgba(0, 0, 0, 0.12);
+  --shadow-medium: 0 2px 8px rgba(0, 0, 0, 0.15);
+  
+  /* Layout */
+  --max-width: 800px;
+  --header-height: 60px;
+  --tab-height: 50px;
+}
+
+/* Reset & Base Styles */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color: var(--color-text);
+  background: var(--color-background);
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+/* Accessibility */
+button:focus-visible {
+  outline: 3px solid var(--color-primary);
+  outline-offset: 2px;
+}

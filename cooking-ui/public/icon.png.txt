@@ -1,0 +1,8 @@
+NOTE: You need a real 512x512 PNG icon here.
+Download a chef/cooking icon from:
+- https://www.flaticon.com/
+- https://icons8.com/
+- Or create your own
+
+Name it: icon.png
+Delete this .txt file

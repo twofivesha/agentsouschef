@@ -1,0 +1,35 @@
+.navigation {
+  display: flex;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  background: var(--color-background);
+  border-bottom: 2px solid var(--color-grey-light);
+}
+
+.tab {
+  flex: 1;
+  height: var(--button-height-medium);
+  background: var(--color-background);
+  border: 2px solid var(--color-grey-light);
+  border-radius: var(--radius-medium);
+  font-size: var(--font-size-tab);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-light);
+  transition: all var(--transition-fast);
+  touch-action: manipulation;
+}
+
+.tab:hover {
+  background: var(--color-grey-light);
+}
+
+.tab.active {
+  background: var(--color-primary);
+  color: white;
+  border-color: var(--color-primary);
+  font-weight: var(--font-weight-bold);
+}
+
+.tab:active {
+  transform: scale(0.98);
+}

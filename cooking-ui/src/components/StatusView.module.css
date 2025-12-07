@@ -1,0 +1,54 @@
+.container {
+  padding: var(--spacing-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xl);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.heading {
+  font-size: var(--font-size-tab);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text);
+}
+
+.currentStep {
+  font-size: 20px;
+  line-height: 1.6;
+  font-weight: var(--font-weight-semibold);
+  padding: var(--spacing-lg);
+  background: var(--color-highlight);
+  border: 2px solid var(--color-highlight-border);
+  border-radius: var(--radius-medium);
+}
+
+.ingredientList {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.ingredient {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm);
+  font-size: var(--font-size-step);
+  line-height: 1.5;
+}
+
+.checkbox {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.ingredient.struck {
+  color: var(--color-grey);
+  text-decoration: line-through;
+}
