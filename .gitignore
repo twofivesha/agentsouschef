@@ -11,6 +11,19 @@ wheels/
 
 # os x
 .DS_Store
+
+# uv stuff
+uv.lock
+
+# Environment
+.env
 .DS_Store
-uv.lock
-uv.lock
+
+# Logs
+*.log
+npm-debug.log*
+
+# UI dependencies and build
+cooking-ui/node_modules/
+cooking-ui/dist/
+cooking-ui/.vite/
